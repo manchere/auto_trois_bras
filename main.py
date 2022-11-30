@@ -32,10 +32,10 @@ class Main(QtWidgets.QMainWindow):
         self.setWindowTitle('Auto Trois Bras')
         self.setGeometry(500, 500, 450, 300)
 
-    def build_ui(self):
+    def build(self):
         pass
 
-    def connect_ui(self):
+    def connect(self):
         pass
 
     def action(self):
