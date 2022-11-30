@@ -1,0 +1,7 @@
+steps to create ik / fk
+
+1. Create a joint chain
+2. Orient the axis of the joint chain in the correct direction with respect to the rotation order
+3. Rename the joint chain correctly eg: joint_JNT
+4. Duplicate the joint chain twice and rename the given the ik suffix to one of the chain and fk suffix to the order chain
+5. 
