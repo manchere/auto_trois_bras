@@ -201,7 +201,6 @@ class Control:
         parent_pos = om.MVector(cmds.xform(self.joints[0], q=True, rp=True, ws=True))
         print(parent_pos)
 
-
         mid_pos = om.MVector(cmds.xform(self.joints[1], q=True, rp=True, ws=True))
         end_pos = om.MVector(cmds.xform(self.joints[2], q=True, rp=True, ws=True))
 
