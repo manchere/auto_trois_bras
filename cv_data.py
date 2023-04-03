@@ -8,7 +8,8 @@ CONTROL_CURVES = {
     'circle': 'circle -c 0 0 0 -nr 0 1 0 -sw 360 -r 1 -d 3 -ut 0 -tol 0.01 -s 8 -ch 1; objectMoveCommand;',
     'square': 'curve -d 1 -p 2 0 -2 -p -2 0 -2 -p -2 0 2 -p 2 0 2 -p 2 0 -2 -k 0 -k 1 -k 2 -k 3 -k 4 ;',
     'cube_square': 'curve -d 1 -p 2 0 -2 -p -2 0 -2 -p -2 0 2 -p 2 0 2 -p 2 0 -2 -k 0 -k 1 -k 2 -k 3 -k 4 ;',
-    'cube_line': 'curve -d 1 -p 0 2 0 -p 0 -2 0 -k 0 -k 1;'
+    'cube_line': 'curve -d 1 -p 0 2 0 -p 0 -2 0 -k 0 -k 1;',
+    'cube': 'polyCube -w 1 -h 1 -d 1 -sx 1 -sy 1 -sz 1 -ax 0 1 0 -cuv 4 -ch 1;',
 }
 
 CUBE_CURVES_DATA = {
