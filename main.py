@@ -8,12 +8,12 @@ version = 1.0
 from maya import cmds
 
 import maya.api.OpenMaya as om
-from PySide2 import QtWidgets
+from PySide2 import QtWidgets, QtCore
 from maya import OpenMayaUI as omui
 from shiboken2 import wrapInstance
 
 from maya import mel as mel
-from functools import reduce
+from functools import partial
 
 from cv_data import CONTROL_CURVES, CUBE_CURVES_DATA
 from lib.ctrl_curves import ControlCurve
@@ -151,8 +151,9 @@ class Control:
             return chain
         return []
 
-    def set_fk_controls(self):
+    def set_fk_controls(self, inc_end_joint=True):
         self.joints = self.get_proper_chain()
+        self.joints.pop(0) if inc_end_joint else self.joints
         for idx, joint in enumerate(self.joints):
             ctrl = ControlCurve()
             ctrl_curve = ctrl.curve_ctrl(joint + '_FK_CTRL', 'circle')
@@ -187,38 +188,50 @@ class Control:
 
     @staticmethod
     def _get_mid_point(ls):
-        sum_vec = 0
+        sum_vec = om.MVector()
         for i in ls:
             sum_vec += om.MVector(cmds.xform(i, q=True, rp=True, ws=True))
         return sum_vec / len(ls)
 
-    def _get_pv_position(self):
+    def _get_pv_position__(self):
 
         parent_pos = om.MVector(cmds.xform(self.joints[-1], q=True, rp=True, ws=True))
         end_pos = om.MVector(cmds.xform(self.joints[0], q=True, rp=True, ws=True))
-        mid_pos = om.MVector(cmds.xform(self._multi_mid(self.joints), q=True, rp=True, ws=True))
+        mid_pos = om.MVector(self._mid_avg(self.joints))
 
         parent_to_end = end_pos - parent_pos
         parent_end_scaled = parent_to_end * 0.5
         mid_point = parent_pos + parent_end_scaled
         mm_vec = mid_pos - mid_point
-        mid_point_elbow_vec_scaled = mm_vec * 5
+        mid_point_elbow_vec_scaled = mm_vec * 2
 
         mm_point = mid_point + mid_point_elbow_vec_scaled
 
         # cmds.xform('PV', t=mm_point)
         return mm_point
 
-    # parent_pos = om.MVector(cmds.xform('arm', q=True, rp=True, ws=True))
-    # mid_pos = om.MVector(cmds.xform('elbow', q=True, rp=True, ws=True))
-    # end_pos = om.MVector(cmds.xform('wrist', q=True, rp=True, ws=True))
+    def _get_pv_position(self):
+        sum_point = om.MVector()
+        for i in range(len(self.joints[:-2])):
+            parent_pos = om.MVector(cmds.xform(self.joints[i + 2], q=True, rp=True, ws=True))
+            end_pos = om.MVector(cmds.xform(self.joints[i], q=True, rp=True, ws=True))
+            mid_pos = om.MVector(cmds.xform(self.joints[i + 1], q=True, rp=True, ws=True))
 
-    def _multi_mid(self, ls):
-        ls.pop(0)
-        ls.pop(-1)
-        if len(ls) > 1:
+            parent_to_end = end_pos - parent_pos
+            parent_end_scaled = parent_to_end * 0.5
+            mid_point = parent_pos + parent_end_scaled
+            mm_vec = mid_pos - mid_point
+            mid_point_elbow_vec_scaled = mm_vec * 3
+
+            mm_point = mid_point + mid_point_elbow_vec_scaled
+
+            sum_point += mm_point
+        return sum_point / len(self.joints[:-2])
+
+    def _mid_avg(self, ls):
+        if len(ls) > 3:
             return self._get_mid_point(ls)
-        return ls[0]
+        return ls[1]
 
     @staticmethod
     def _vec_mean(ls):
@@ -234,10 +247,16 @@ class Control:
     def _set_pv_location(self):
         pass
 
-    def build(self):
-        self.set_fk_controls()
-        self.parent_fk_controls()
-        self.set_ik_controls()
+    def build(self, build_type, end_j_incl='include'):
+        if build_type == 0:
+            self.set_fk_controls(end_j_incl)
+            self.parent_fk_controls()
+            self.set_ik_controls()
+        elif build_type == 1:
+            self.set_fk_controls(end_j_incl)
+            self.parent_fk_controls()
+        else:
+            self.set_ik_controls()
 
 
 class IkFkSwitch:
@@ -298,6 +317,7 @@ class Main(QtWidgets.QMainWindow):
         self.first_row = QtWidgets.QHBoxLayout()
         self.sec_row = QtWidgets.QHBoxLayout()
         self.third_row = QtWidgets.QHBoxLayout()
+        self.fourth_row = QtWidgets.QHBoxLayout()
         self.txt_parent_joint = QtWidgets.QLineEdit()
         self.txt_end_joint = QtWidgets.QLineEdit()
         self.lbl_parent = QtWidgets.QLabel('Parent Joint')
@@ -308,6 +328,8 @@ class Main(QtWidgets.QMainWindow):
         self.cmb_control_type = QtWidgets.QComboBox()
         self.radio_end_fk_control = QtWidgets.QCheckBox('Include FK control on end joint')
         self.btn_create_system = QtWidgets.QPushButton("create system")
+        self.btn_color_fk = QtWidgets.QPushButton('FK')
+        self.btn_color_ik = QtWidgets.QPushButton('IK')
 
         self.style = Style(self.main_widget)
 
@@ -317,6 +339,12 @@ class Main(QtWidgets.QMainWindow):
         self.setGeometry(450, 300, 300, 150)
 
         self.setCentralWidget(self.main_widget)
+
+        self.btn_color_ik.setStyleSheet('QPushButton {background-color: green; color: white;}')
+        self.btn_color_fk.setStyleSheet('QPushButton {background-color: red; color: white;}')
+        self.btn_parent_joint.setStyleSheet('QPushButton {background-color: #1d2951; color: white;}')
+        self.btn_end_joint.setStyleSheet('QPushButton {background-color: #1d2951 ; color: white;}')
+        self.btn_create_system.setStyleSheet('QPushButton {background-color: #1d2951; color: gray;}')
 
         self.cmb_control_type.addItems(['IK / FK', 'IK only', 'FK only'])
 
@@ -330,14 +358,23 @@ class Main(QtWidgets.QMainWindow):
 
         self.third_row.addWidget(self.radio_end_fk_control)
 
+        self.fourth_row.addWidget(self.btn_color_ik)
+        self.fourth_row.addWidget(self.btn_color_fk)
+
+        self.radio_end_fk_control.setChecked(True)
+
         self.ver_layout.addLayout(self.choice_row)
         self.ver_layout.addLayout(self.first_row)
         self.ver_layout.addLayout(self.sec_row)
         self.ver_layout.addLayout(self.third_row)
+        self.ver_layout.addLayout(self.fourth_row)
         self.ver_layout.addWidget(self.btn_create_system)
 
         self.btn_parent_joint.clicked.connect(self.add_parent_joint)
         self.btn_end_joint.clicked.connect(self.add_end_joint)
+
+        self.btn_color_ik.clicked.connect(partial(self.choose_color, self.btn_color_ik, ))
+        self.btn_color_fk.clicked.connect(partial(self.choose_color, self.btn_color_fk))
 
         self.cmb_control_type.currentTextChanged.connect(self.check_fk)
 
@@ -351,13 +388,28 @@ class Main(QtWidgets.QMainWindow):
 
     def create_system(self):
         control = Control(self.txt_parent_joint.text(), self.txt_end_joint.text())
-        control.build()
+        if self.cmb_control_type.currentText() == 'IK / FK':
+            print('ik fk both!!!!!!!!!!!!!')
+            control.build(0, 'include') if self.radio_end_fk_control.isChecked() else control.build(0, 'exclude')
+        elif self.cmb_control_type.currentText() == 'FK only':
+            control.build(1, 'include') if self.radio_end_fk_control.isChecked() else control.build(1, 'include')
+
+        else:
+            control.build(2)
 
     def check_fk(self):
         if self.cmb_control_type.currentIndex() == 1:
             self.radio_end_fk_control.setDisabled(True)
         else:
             self.radio_end_fk_control.setDisabled(False)
+
+    @staticmethod
+    def choose_color(button):
+
+        color = QtWidgets.QColorDialog.getColor()
+        if color.isValid():
+            button.setStyleSheet("QPushButton {background-color:" + color.name() + "; color: white;}")
+            return color.name()
 
 
 TRANSFORM_NODETYPES = ['transform', 'joint']
