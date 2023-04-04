@@ -151,9 +151,9 @@ class Control:
             return chain
         return []
 
-    def set_fk_controls(self, inc_end_joint=True):
+    def set_fk_controls(self, inc_end_joint='include'):
         self.joints = self.get_proper_chain()
-        self.joints.pop(0) if inc_end_joint else self.joints
+        self.joints.pop(0) if inc_end_joint =='exclude' else self.joints
         for idx, joint in enumerate(self.joints):
             ctrl = ControlCurve()
             ctrl_curve = ctrl.curve_ctrl(joint + '_FK_CTRL', 'circle')
@@ -177,12 +177,12 @@ class Control:
         cmds.orientConstraint(ctrl_cube, self.end_joint)
         self.ik_controls.append(ctrl_cube)
         bake_t_opmatrix(self.ik_controls[0])
-        self.set_ik_pole_control(-90)
+        self.set_ik_pole_control()
 
-    def set_ik_pole_control(self, offset):
+    def set_ik_pole_control(self):
         ctrl = ControlCurve()
         self.ik_pole_control = ctrl.three_circle_ctrl(self.parent_joint + '_IK_CTRL', 'three_circles')
-        cmds.xform(self.ik_pole_control, t=self._get_pv_position())  # self._get_pv_position()
+        cmds.xform(self.ik_pole_control, t=self._get_pv_position())
         bake_t_opmatrix(self.ik_pole_control)
         cmds.poleVectorConstraint(self.ik_pole_control, self.ik_handle)
 
@@ -211,9 +211,12 @@ class Control:
         return mm_point
 
     def _get_pv_position(self):
+        self.joints = self.get_proper_chain()
         sum_point = om.MVector()
         for i in range(len(self.joints[:-2])):
             parent_pos = om.MVector(cmds.xform(self.joints[i + 2], q=True, rp=True, ws=True))
+            print('self.joints', self.joints)
+            print('self.joints[-2]', self.joints[:-2])
             end_pos = om.MVector(cmds.xform(self.joints[i], q=True, rp=True, ws=True))
             mid_pos = om.MVector(cmds.xform(self.joints[i + 1], q=True, rp=True, ws=True))
 
@@ -247,13 +250,13 @@ class Control:
     def _set_pv_location(self):
         pass
 
-    def build(self, build_type, end_j_incl='include'):
+    def build(self, build_type, inc_end_joint='include'):
         if build_type == 0:
-            self.set_fk_controls(end_j_incl)
+            self.set_fk_controls(inc_end_joint)
             self.parent_fk_controls()
             self.set_ik_controls()
         elif build_type == 1:
-            self.set_fk_controls(end_j_incl)
+            self.set_fk_controls(inc_end_joint)
             self.parent_fk_controls()
         else:
             self.set_ik_controls()
@@ -389,10 +392,9 @@ class Main(QtWidgets.QMainWindow):
     def create_system(self):
         control = Control(self.txt_parent_joint.text(), self.txt_end_joint.text())
         if self.cmb_control_type.currentText() == 'IK / FK':
-            print('ik fk both!!!!!!!!!!!!!')
             control.build(0, 'include') if self.radio_end_fk_control.isChecked() else control.build(0, 'exclude')
         elif self.cmb_control_type.currentText() == 'FK only':
-            control.build(1, 'include') if self.radio_end_fk_control.isChecked() else control.build(1, 'include')
+            control.build(1, 'include') if self.radio_end_fk_control.isChecked() else control.build(1, 'exclude')
 
         else:
             control.build(2)
