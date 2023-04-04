@@ -181,42 +181,44 @@ class Control:
     def set_ik_pole_control(self, offset):
         ctrl = ControlCurve()
         self.ik_pole_control = ctrl.three_circle_ctrl(self.parent_joint + '_IK_CTRL', 'three_circles')
-        cmds.xform(self.ik_pole_control,
-                   t=self._get_pv_position(),
-                   ws=True)
-        # cmds.matchTransform(self.ik_pole_control, self.parent_joint, rx=True)
+        cmds.xform(self.ik_pole_control, t=self._get_pv_position())  # self._get_pv_position()
         bake_t_opmatrix(self.ik_pole_control)
         cmds.poleVectorConstraint(self.ik_pole_control, self.ik_handle)
 
-    def _get_mid_point(self):
-        root_vector = cmds.xform(self.parent_joint, ws=True, q=True, rp=True, t=True)
-        end_vector = cmds.xform(self.end_joint, ws=True, q=True, rp=True, t=True)
-
-        x = (root_vector[0] + end_vector[0]) / 2.0
-        y = (root_vector[1] + end_vector[1]) / 2.0
-        z = (root_vector[2] + end_vector[2]) / 2.0
-        return x, y, z
+    @staticmethod
+    def _get_mid_point(ls):
+        sum_vec = 0
+        for i in ls:
+            sum_vec += om.MVector(cmds.xform(i, q=True, rp=True, ws=True))
+        return sum_vec / len(ls)
 
     def _get_pv_position(self):
-        parent_pos = om.MVector(cmds.xform(self.joints[0], q=True, rp=True, ws=True))
-        print(parent_pos)
 
-        mid_pos = om.MVector(cmds.xform(self.joints[1], q=True, rp=True, ws=True))
-        end_pos = om.MVector(cmds.xform(self.joints[2], q=True, rp=True, ws=True))
+        parent_pos = om.MVector(cmds.xform(self.joints[-1], q=True, rp=True, ws=True))
+        end_pos = om.MVector(cmds.xform(self.joints[0], q=True, rp=True, ws=True))
+        mid_pos = om.MVector(cmds.xform(self._multi_mid(self.joints), q=True, rp=True, ws=True))
 
-        parent_to_end = parent_pos - end_pos
-        parent_to_end_scaled = parent_to_end * 0.5
-        mid_point = parent_pos + parent_to_end_scaled
-
+        parent_to_end = end_pos - parent_pos
+        parent_end_scaled = parent_to_end * 0.5
+        mid_point = parent_pos + parent_end_scaled
         mm_vec = mid_pos - mid_point
-        cmds.xform(cmds.spaceLocator(), ws=True, t=mm_vec)
-        mm_vec_scaled = mm_vec * 2
-        cmds.xform(cmds.spaceLocator(), ws=True, t=mm_vec_scaled)
-        mid_point_to_pos = mid_point + mm_vec_scaled
-        cmds.xform(cmds.spaceLocator(), ws=True, t=mid_point_to_pos)
+        mid_point_elbow_vec_scaled = mm_vec * 5
 
-        return mid_point_to_pos
+        mm_point = mid_point + mid_point_elbow_vec_scaled
 
+        # cmds.xform('PV', t=mm_point)
+        return mm_point
+
+    # parent_pos = om.MVector(cmds.xform('arm', q=True, rp=True, ws=True))
+    # mid_pos = om.MVector(cmds.xform('elbow', q=True, rp=True, ws=True))
+    # end_pos = om.MVector(cmds.xform('wrist', q=True, rp=True, ws=True))
+
+    def _multi_mid(self, ls):
+        ls.pop(0)
+        ls.pop(-1)
+        if len(ls) > 1:
+            return self._get_mid_point(ls)
+        return ls[0]
 
     @staticmethod
     def _vec_mean(ls):
@@ -224,11 +226,10 @@ class Control:
         y = 0
         z = 0
         for i in ls:
-            print(ls)
             x += i[0]
             y += i[1]
             z += i[2]
-        return [x/len(ls), y/len(ls), z/len(ls)]
+        return [x / len(ls), y / len(ls), z / len(ls)]
 
     def _set_pv_location(self):
         pass
@@ -293,14 +294,19 @@ class Main(QtWidgets.QMainWindow):
 
         self.main_widget = QtWidgets.QWidget(self)
         self.ver_layout = QtWidgets.QVBoxLayout(self.main_widget)
+        self.choice_row = QtWidgets.QHBoxLayout()
         self.first_row = QtWidgets.QHBoxLayout()
         self.sec_row = QtWidgets.QHBoxLayout()
+        self.third_row = QtWidgets.QHBoxLayout()
         self.txt_parent_joint = QtWidgets.QLineEdit()
         self.txt_end_joint = QtWidgets.QLineEdit()
         self.lbl_parent = QtWidgets.QLabel('Parent Joint')
         self.lbl_end = QtWidgets.QLabel('End Joint')
+        self.lbl_type = QtWidgets.QLabel('Type:')
         self.btn_parent_joint = QtWidgets.QPushButton('parent joint')
         self.btn_end_joint = QtWidgets.QPushButton('end joint')
+        self.cmb_control_type = QtWidgets.QComboBox()
+        self.radio_end_fk_control = QtWidgets.QCheckBox('Include FK control on end joint')
         self.btn_create_system = QtWidgets.QPushButton("create system")
 
         self.style = Style(self.main_widget)
@@ -312,18 +318,28 @@ class Main(QtWidgets.QMainWindow):
 
         self.setCentralWidget(self.main_widget)
 
+        self.cmb_control_type.addItems(['IK / FK', 'IK only', 'FK only'])
+
+        self.choice_row.addWidget(self.lbl_type, 3)
+        self.choice_row.addWidget(self.cmb_control_type, 7)
         self.first_row.addWidget(self.txt_parent_joint, 7)
         self.first_row.addWidget(self.btn_parent_joint, 3)
 
         self.sec_row.addWidget(self.txt_end_joint, 7)
         self.sec_row.addWidget(self.btn_end_joint, 3)
 
+        self.third_row.addWidget(self.radio_end_fk_control)
+
+        self.ver_layout.addLayout(self.choice_row)
         self.ver_layout.addLayout(self.first_row)
         self.ver_layout.addLayout(self.sec_row)
+        self.ver_layout.addLayout(self.third_row)
         self.ver_layout.addWidget(self.btn_create_system)
 
         self.btn_parent_joint.clicked.connect(self.add_parent_joint)
         self.btn_end_joint.clicked.connect(self.add_end_joint)
+
+        self.cmb_control_type.currentTextChanged.connect(self.check_fk)
 
         self.btn_create_system.clicked.connect(self.create_system)
 
@@ -336,6 +352,12 @@ class Main(QtWidgets.QMainWindow):
     def create_system(self):
         control = Control(self.txt_parent_joint.text(), self.txt_end_joint.text())
         control.build()
+
+    def check_fk(self):
+        if self.cmb_control_type.currentIndex() == 1:
+            self.radio_end_fk_control.setDisabled(True)
+        else:
+            self.radio_end_fk_control.setDisabled(False)
 
 
 TRANSFORM_NODETYPES = ['transform', 'joint']
