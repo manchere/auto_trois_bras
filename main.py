@@ -91,10 +91,31 @@ class ControlCurve:
         return name
 
     @staticmethod
+    def ikfk_ctrl(name):
+        i = mel.eval(CONTROL_CURVES['I'])
+        cmds.scale(0.08, 0.08, 0.08)
+        cmds.move(0, 0.6, 0)
+        f = mel.eval(CONTROL_CURVES['F'])
+        cmds.scale(0.08, 0.08, 0.08)
+        cmds.move(0, 0.6, 0)
+        k = mel.eval(CONTROL_CURVES['K'])
+        cmds.scale(0.08, 0.08, 0.08)
+        cmds.move(7, 0.6, 0)
+        arrow = mel.eval(CONTROL_CURVES['two_arrow'])
+        cmds.scale(0.1, 0.1, 0.1)
+        cmds.rename(arrow, name)
+        for ctrl in [i, f, k]:
+            cmds.parent(ctrl, name)
+            cmds.rotate(0, 0, 0, r=True, p=[0, 0, 0], os=True)
+            cmds.select(ctrl, add=True)
+            cmds.makeIdentity(a=True, t=True, r=True, s=True, n=False)
+        return i, f, k, name
+
+
+    @staticmethod
     def pole_ctrl(cv_name, cv_type='four_arrow'):
         cv = mel.eval(CONTROL_CURVES[cv_type])
         cmds.rename(cv, cv_name)
-        # cmds.scale(, 2.5, 2.5, ws=True, r=True)
         cmds.select(cv_name + '.cv[0:24]', r=True)
         cmds.makeIdentity(a=True, t=True, r=True, s=True, n=False)
         cmds.select(cl=True)
@@ -153,7 +174,7 @@ class Control:
 
     def set_fk_controls(self, inc_end_joint='include'):
         self.joints = self.get_proper_chain()
-        self.joints.pop(0) if inc_end_joint =='exclude' else self.joints
+        self.joints.pop(0) if inc_end_joint == 'exclude' else self.joints
         for idx, joint in enumerate(self.joints):
             ctrl = ControlCurve()
             ctrl_curve = ctrl.curve_ctrl(joint + '_FK_CTRL', 'circle')
@@ -185,6 +206,13 @@ class Control:
         cmds.xform(self.ik_pole_control, t=self._get_pv_position())
         bake_t_opmatrix(self.ik_pole_control)
         cmds.poleVectorConstraint(self.ik_pole_control, self.ik_handle)
+
+    def set_ik_switch_control(self):
+        ctrl = ControlCurve()
+        ikfk = ctrl.ikfk_ctrl(self.end_joint + '_ikfk_switch')
+        cmds.pointConstraint(self.end_joint, ikfk)
+        # cmds.pointConstraint(self.end_joint, ikfk, e=True, o=[1.5, 1.5, 0])
+
 
     @staticmethod
     def _get_mid_point(ls):
@@ -255,6 +283,7 @@ class Control:
             self.set_fk_controls(inc_end_joint)
             self.parent_fk_controls()
             self.set_ik_controls()
+            self.set_ik_switch_control()
         elif build_type == 1:
             self.set_fk_controls(inc_end_joint)
             self.parent_fk_controls()
