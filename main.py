@@ -111,14 +111,6 @@ class ControlCurve:
             cmds.makeIdentity(a=True, t=True, r=True, s=True, n=False)
         return {'i': i, 'f': f, 'k': k, 'name': name}
 
-    @staticmethod
-    def pole_ctrl(cv_name, cv_type='four_arrow'):
-        cv = mel.eval(CONTROL_CURVES[cv_type])
-        cmds.rename(cv, cv_name)
-        cmds.select(cv_name + '.cv[0:24]', r=True)
-        cmds.makeIdentity(a=True, t=True, r=True, s=True, n=False)
-        cmds.select(cl=True)
-        return cv_name
 
     @staticmethod
     def three_circle_ctrl(cv_name, cv_type):
@@ -140,20 +132,12 @@ class Control:
         self.end_joint = end_joint
         self.joints = None
         self.fk_controls = []
-        self.ik_control = []
+        self.ik_control = ''
         self.ik_pole_control = ''
         self.ik_handle = None
         self.ik_effector = None
         self.switch_control = None
         self.ikfk_switch_control = None
-
-    def get_proper_chain(self):
-        if self.parent_joint or (self.parent_joint and self.end_joint):
-            children_joints = self.get_joint_chain(self.parent_joint)
-            end_joint_chain = self.get_joint_chain(self.end_joint)
-
-            neat_children_list = [item for item in children_joints if item not in end_joint_chain]
-            return neat_children_list + [self.parent_joint]
 
     @staticmethod
     def get_joint_chain(joint):
@@ -167,6 +151,14 @@ class Control:
             return chain
         return []
 
+    def get_proper_chain(self):
+        if self.parent_joint or (self.parent_joint and self.end_joint):
+            children_joints = self.get_joint_chain(self.parent_joint)
+            end_joint_chain = self.get_joint_chain(self.end_joint)
+
+            neat_children_list = [item for item in children_joints if item not in end_joint_chain]
+            return neat_children_list + [self.parent_joint]
+
     def set_fk_controls(self, inc_end_joint='include'):
         self.joints = self.get_proper_chain()
         self.joints.pop(0) if inc_end_joint == 'exclude' else self.joints
@@ -176,8 +168,9 @@ class Control:
             cmds.matchTransform(ctrl_curve, joint, pos=True, rot=True, scale=False)
             cmds.orientConstraint(ctrl_curve, joint)
             self.fk_controls.append(ctrl_curve)
+        self._parent_fk_controls()
 
-    def parent_fk_controls(self):
+    def _parent_fk_controls(self):
         for idx, ctrl in enumerate(self.fk_controls[:-1]):
             cmds.parent(ctrl, self.fk_controls[idx + 1])
             bake_t_opmatrix(ctrl)
@@ -187,17 +180,18 @@ class Control:
         self.ik_handle, self.ik_effector = cmds.ikHandle(name=self.parent_joint + '_IK', sj=self.parent_joint,
                                                          ee=self.end_joint, solver='ikRPsolver')
         ctrl = ControlCurve()
-        ctrl_cube = ctrl.cube_ctrl(self.end_joint + '_IK_CTRL')
-        cmds.matchTransform(ctrl_cube, self.end_joint, pos=True, rot=True, scale=False)
-        cmds.pointConstraint(ctrl_cube, self.ik_handle)
-        cmds.orientConstraint(ctrl_cube, self.end_joint)
-        self.ik_control.append(ctrl_cube)
-        bake_t_opmatrix(self.ik_control[0])
+        self.ik_control = ctrl.cube_ctrl(self.end_joint + '_IK_CTRL')
+        print('self.ikcontrol', self.ik_control)
+        cmds.matchTransform(self.ik_control, self.end_joint, pos=True, rot=True, scale=False)
+        cmds.pointConstraint(self.ik_control, self.ik_handle)
+        cmds.orientConstraint(self.ik_control, self.end_joint)
+        bake_t_opmatrix(self.ik_control)
         self.set_ik_pole_control()
 
     def set_ik_pole_control(self):
         ctrl = ControlCurve()
         self.ik_pole_control = ctrl.three_circle_ctrl(self.parent_joint + '_IK_CTRL', 'three_circles')
+        print('ik_pole', self.ik_pole_control)
         cmds.xform(self.ik_pole_control, t=self._get_pv_position())
         bake_t_opmatrix(self.ik_pole_control)
         cmds.poleVectorConstraint(self.ik_pole_control, self.ik_handle)
@@ -206,7 +200,7 @@ class Control:
         ctrl = ControlCurve()
         self.ikfk_switch_control = ctrl.ikfk_ctrl(self.end_joint + '_ikfk_switch')
         cmds.matchTransform(self.ikfk_switch_control['name'], self.end_joint, pos=True)
-        cmds.pointConstraint(self.end_joint, self.ikfk_switch_control['name'], o=[10, 1.5, 0])
+        cmds.pointConstraint(self.end_joint, self.ikfk_switch_control['name'], o=[15, 1.5, 0])
         self.switch_control = self.ikfk_switch_control['name']
 
     @staticmethod
@@ -259,6 +253,7 @@ class IkFkSwitch(Control):
     # def __init__(self, ik_handle, ik_ctrl, pv_ctrl, fk_parent_ctrl, switch_ctrl, parent_joint, end_joint):
     def __init__(self, parent_joint, end_joint):
         super().__init__(parent_joint, end_joint)
+        self.tool = Tools()
 
     @staticmethod
     def _lock_ctrl(ctrl, attr_list):
@@ -280,7 +275,7 @@ class IkFkSwitch(Control):
     def _connect_ikfk(self):
         cmds.setDrivenKeyframe(self.ik_handle + '.ikBlend', cd=self.switch_control + '.IK_FK_Blend')
         cmds.setDrivenKeyframe(self.fk_controls[-1] + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
-        cmds.setDrivenKeyframe(self.ik_control[0] + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
+        cmds.setDrivenKeyframe(self.ik_control + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
         cmds.setDrivenKeyframe(self.ik_pole_control + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
         cmds.setDrivenKeyframe(self.ikfk_switch_control['f'] + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
         cmds.setDrivenKeyframe(self.ikfk_switch_control['i'] + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
@@ -303,6 +298,18 @@ class IkFkSwitch(Control):
         cmds.showHidden(self.ik_control)
         cmds.showHidden(self.ikfk_switch_control['i'])
 
+    @staticmethod
+    def set_color(ctrl, color=(1, 0, 1)):
+        rgb = ("R", "G", "B")
+        cmds.setAttr(ctrl + ".overrideEnabled", 1)
+        cmds.setAttr(ctrl + ".overrideRGBColors", 1)
+        for channel, color in zip(rgb, color):
+            cmds.setAttr(ctrl + ".overrideColor%s" % channel, color)
+
+    def assign_color(self, ctrls, color):
+        for i in ctrls:
+            self.set_color(i, color)
+
     def build_ikfk(self):
         self.set_ik_switch_control()
         self.add_ikfk()
@@ -310,18 +317,44 @@ class IkFkSwitch(Control):
         self._connect_ikfk()
         self._switch_to_fk()
         self._connect_ikfk()
+        Tools.clean_output()
 
-    def build(self, build_type, inc_end_joint='include'):
+    def build(self, build_type, inc_end_joint='include', colors=None):
         if build_type == 0:
-            self.set_fk_controls(inc_end_joint)
-            self.parent_fk_controls()
             self.set_ik_controls()
+            self.set_fk_controls(inc_end_joint)
             self.build_ikfk()
+            self.assign_color([self.ik_control, self.ik_pole_control], colors['ik'])
+            self.assign_color(self.fk_controls, colors['fk'])
         elif build_type == 1:
             self.set_fk_controls(inc_end_joint)
-            self.parent_fk_controls()
+            self.assign_color(self.fk_controls, colors['fk'])
         else:
             self.set_ik_controls()
+            self.assign_color([self.ik_control, self.ik_pole_control], colors['ik'])
+        self.tool.clean_output()
+        self.tool.group_ctrl(self.ik_control+'ik_grp', [self.ik_control, self.ik_pole_control])
+
+
+class Tools:
+
+    @staticmethod
+    def clean_output():
+        deleteList = []
+        for tran in cmds.ls(type='transform'):
+            if cmds.nodeType(tran) == 'transform':
+                children = cmds.listRelatives(tran, c=True)
+                if children is None:
+                    deleteList.append(tran)
+
+        if len(deleteList) > 0:
+            cmds.delete(deleteList)
+
+    @staticmethod
+    def group_ctrl(name, ls):
+        grpname = cmds.group(n=name)
+        for cur_name in ls:
+            cmds.parent(cur_name, grpname)
 
 
 class Main(QtWidgets.QMainWindow):
@@ -329,6 +362,8 @@ class Main(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
         super(Main, self).__init__(parent)
 
+        self.fk_color = [1, 0, 0]
+        self.ik_color = [0, 1, 0]
         self.main_widget = QtWidgets.QWidget(self)
         self.ver_layout = QtWidgets.QVBoxLayout(self.main_widget)
         self.choice_row = QtWidgets.QHBoxLayout()
@@ -391,7 +426,7 @@ class Main(QtWidgets.QMainWindow):
         self.btn_parent_joint.clicked.connect(self.add_parent_joint)
         self.btn_end_joint.clicked.connect(self.add_end_joint)
 
-        self.btn_color_ik.clicked.connect(partial(self.choose_color, self.btn_color_ik, ))
+        self.btn_color_ik.clicked.connect(partial(self.choose_color, self.btn_color_ik))
         self.btn_color_fk.clicked.connect(partial(self.choose_color, self.btn_color_fk))
 
         self.cmb_control_type.currentTextChanged.connect(self.check_fk)
@@ -406,12 +441,17 @@ class Main(QtWidgets.QMainWindow):
 
     def create_system(self):
         control = IkFkSwitch(self.txt_parent_joint.text(), self.txt_end_joint.text())
+        colors = {'ik': self.ik_color, 'fk': self.fk_color}
         if self.cmb_control_type.currentText() == 'IK / FK':
-            control.build(0, 'include') if self.radio_end_fk_control.isChecked() else control.build(0, 'exclude')
+            control.build(0, 'include', colors) if self.radio_end_fk_control.isChecked() else control.build(0,
+                                                                                                            'exclude',
+                                                                                                            colors)
         elif self.cmb_control_type.currentText() == 'FK only':
-            control.build(1, 'include') if self.radio_end_fk_control.isChecked() else control.build(1, 'exclude')
+            control.build(1, 'include', colors) if self.radio_end_fk_control.isChecked() else control.build(1,
+                                                                                                            'exclude',
+                                                                                                            colors)
         else:
-            control.build(2)
+            control.build(2, 'include', colors)
 
     def check_fk(self):
         if self.cmb_control_type.currentIndex() == 1:
@@ -419,12 +459,21 @@ class Main(QtWidgets.QMainWindow):
         else:
             self.radio_end_fk_control.setDisabled(False)
 
-    @staticmethod
-    def choose_color(button):
+    def choose_color(self, button):
         color = QtWidgets.QColorDialog.getColor()
         if color.isValid():
             button.setStyleSheet("QPushButton {background-color:" + color.name() + "; color: white;}")
-            return color.name()
+        if button.text() == 'IK':
+            self.ik_color = self.to_rgb(color.rgb())
+        if button.text() == 'FK':
+            self.fk_color = self.to_rgb(color.rgb())
+
+    @staticmethod
+    def to_rgb(int_value):
+        red = ((int_value >> 16) & 255) / 255
+        blue = (int_value & 255) / 255
+        green = ((int_value >> 8) & 255) / 255
+        return red, green, blue
 
 
 TRANSFORM_NODETYPES = ['transform', 'joint']
