@@ -92,13 +92,13 @@ class ControlCurve:
 
     @staticmethod
     def ikfk_ctrl(name):
-        i = cmds.rename(mel.eval(CONTROL_CURVES['I']), 'i')
+        i = cmds.rename(mel.eval(CONTROL_CURVES['I']), 'i_' + name)
         cmds.scale(0.08, 0.08, 0.08)
         cmds.move(0, 0.6, 0)
-        f = cmds.rename(mel.eval(CONTROL_CURVES['F']), 'f')
+        f = cmds.rename(mel.eval(CONTROL_CURVES['F']), 'f_' + name)
         cmds.scale(0.08, 0.08, 0.08)
         cmds.move(0, 0.6, 0)
-        k = cmds.rename(mel.eval(CONTROL_CURVES['K']), 'k')
+        k = cmds.rename(mel.eval(CONTROL_CURVES['K']), 'k_' + name)
         cmds.scale(0.08, 0.08, 0.08)
         cmds.move(7, 0.6, 0)
         arrow = mel.eval(CONTROL_CURVES['two_arrow'])
@@ -138,6 +138,7 @@ class Control:
         self.ik_effector = None
         self.switch_control = None
         self.ikfk_switch_control = None
+        self.end_orient_constraint = None
 
     @staticmethod
     def get_joint_chain(joint):
@@ -181,17 +182,15 @@ class Control:
                                                          ee=self.end_joint, solver='ikRPsolver')
         ctrl = ControlCurve()
         self.ik_control = ctrl.cube_ctrl(self.end_joint + '_IK_CTRL')
-        print('self.ikcontrol', self.ik_control)
         cmds.matchTransform(self.ik_control, self.end_joint, pos=True, rot=True, scale=False)
         cmds.pointConstraint(self.ik_control, self.ik_handle)
-        cmds.orientConstraint(self.ik_control, self.end_joint)
+        self.end_orient_constraint = cmds.orientConstraint(self.ik_control, self.end_joint)
         bake_t_opmatrix(self.ik_control)
         self.set_ik_pole_control()
 
     def set_ik_pole_control(self):
         ctrl = ControlCurve()
         self.ik_pole_control = ctrl.three_circle_ctrl(self.parent_joint + '_IK_CTRL', 'three_circles')
-        print('ik_pole', self.ik_pole_control)
         cmds.xform(self.ik_pole_control, t=self._get_pv_position())
         bake_t_opmatrix(self.ik_pole_control)
         cmds.poleVectorConstraint(self.ik_pole_control, self.ik_handle)
@@ -200,7 +199,7 @@ class Control:
         ctrl = ControlCurve()
         self.ikfk_switch_control = ctrl.ikfk_ctrl(self.end_joint + '_ikfk_switch')
         cmds.matchTransform(self.ikfk_switch_control['name'], self.end_joint, pos=True)
-        cmds.pointConstraint(self.end_joint, self.ikfk_switch_control['name'], o=[15, 1.5, 0])
+        cmds.pointConstraint(self.end_joint, self.ikfk_switch_control['name'], o=[0, 10, 0])
         self.switch_control = self.ikfk_switch_control['name']
 
     @staticmethod
@@ -270,7 +269,7 @@ class IkFkSwitch(Control):
         cmds.setAttr('.IK_FK_Blend', e=True, keyable=True)
         for x in cmds.listRelatives(self.switch_control, ad=True, type='transform'):
             self._lock_ctrl(x, attr)
-            self._lock_ctrl(x, ['visibility']) if x not in ['f', 'i'] else print(x)
+            self._lock_ctrl(x, ['visibility']) if x not in [self.ikfk_switch_control['i'], self.ikfk_switch_control['f']] else print(x)
 
     def _connect_ikfk(self):
         cmds.setDrivenKeyframe(self.ik_handle + '.ikBlend', cd=self.switch_control + '.IK_FK_Blend')
@@ -279,10 +278,15 @@ class IkFkSwitch(Control):
         cmds.setDrivenKeyframe(self.ik_pole_control + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
         cmds.setDrivenKeyframe(self.ikfk_switch_control['f'] + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
         cmds.setDrivenKeyframe(self.ikfk_switch_control['i'] + '.visibility', cd=self.switch_control + '.IK_FK_Blend')
+        cmds.setDrivenKeyframe(self.end_orient_constraint[0] + '.' + self.ik_control + 'W0',
+                               cd=self.switch_control + '.IK_FK_Blend')
+        cmds.setDrivenKeyframe(self.end_orient_constraint[0] + '.' + self.fk_controls[0] + 'W1', cd=self.switch_control + '.IK_FK_Blend')
 
     def _switch_to_fk(self):
         cmds.setAttr(self.switch_control + '.IK_FK_Blend', 0.0)
         cmds.setAttr(self.ik_handle + '.ikBlend', 0)
+        cmds.setAttr(self.end_orient_constraint[0] + '.' + self.ik_control + 'W0', 0)
+        cmds.setAttr(self.end_orient_constraint[0] + '.' + self.fk_controls[0] + 'W1', 1)
         cmds.hide(self.ik_control)
         cmds.hide(self.ikfk_switch_control['i'])
         cmds.hide(self.ik_pole_control)
@@ -292,6 +296,8 @@ class IkFkSwitch(Control):
     def _switch_to_ik(self):
         cmds.setAttr(self.switch_control + '.IK_FK_Blend', 1.0)
         cmds.setAttr(self.ik_handle + '.ikBlend', 1.0)
+        cmds.setAttr(self.end_orient_constraint[0] + '.' + self.ik_control + 'W0', 1)
+        cmds.setAttr(self.end_orient_constraint[0] + '.' + self.fk_controls[0] + 'W1', 0)
         cmds.hide(self.fk_controls[-1])
         cmds.hide(self.ikfk_switch_control['f'])
         cmds.showHidden(self.ik_pole_control)
@@ -326,6 +332,10 @@ class IkFkSwitch(Control):
             self.build_ikfk()
             self.assign_color([self.ik_control, self.ik_pole_control], colors['ik'])
             self.assign_color(self.fk_controls, colors['fk'])
+            self.assign_color([self.ikfk_switch_control['f']], colors['fk'])
+            self.assign_color([self.ikfk_switch_control['i']], colors['ik'])
+            self.assign_color([self.ikfk_switch_control['k']], [1, 1, 1])
+            self.assign_color([self.ikfk_switch_control['name']], [1, 1, 1])
         elif build_type == 1:
             self.set_fk_controls(inc_end_joint)
             self.assign_color(self.fk_controls, colors['fk'])
